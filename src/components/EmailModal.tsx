@@ -15,6 +15,7 @@ const EmailModal: React.FC<EmailModalProps> = ({ recipients, emailType, onClose,
   const [emailsSent, setEmailsSent] = useState<Set<string>>(new Set());
   const [sending, setSending] = useState(false);
   const [sentCount, setSentCount] = useState(0);
+  const [attachTemplate, setAttachTemplate] = useState(true); // Default to true for attaching template
 
   useEffect(() => {
     // Load previously sent emails from localStorage
@@ -235,7 +236,8 @@ hereby cautioned that any dissemination, distribution or copying of this communi
             to: recipient.email,
             subject: subject,
             html: `<pre style="font-family: Arial, sans-serif; white-space: pre-wrap; font-size: 12px;">${emailContent}</pre>`,
-            text: emailContent
+            text: emailContent,
+            attachTemplate: attachTemplate
           })
         });
 
@@ -371,6 +373,25 @@ hereby cautioned that any dissemination, distribution or copying of this communi
           {/* Email Preview */}
           <div className="mb-6">
             <h4 className="text-lg font-medium text-gray-900 mb-3">Email Preview</h4>
+            
+            {/* Attachment Option */}
+            <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+              <label className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  checked={attachTemplate}
+                  onChange={(e) => setAttachTemplate(e.target.checked)}
+                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <span className="text-sm font-medium text-blue-900">
+                  Attach Application Form Template (PDF)
+                </span>
+              </label>
+              <p className="text-xs text-blue-700 mt-1">
+                Students will receive the official ONGC internship application form to fill and submit.
+              </p>
+            </div>
+            
             <div className="bg-gray-50 p-4 rounded-lg max-h-60 overflow-y-auto">
               <pre className="text-xs text-gray-700 whitespace-pre-wrap font-mono">
                 {eligibleRecipients.length > 0 ? (
@@ -408,7 +429,7 @@ hereby cautioned that any dissemination, distribution or copying of this communi
               <div className="flex items-center space-x-2">
                 <CheckCircle className="w-5 h-5 text-green-600" />
                 <span className="text-sm font-medium text-green-800">
-                  Successfully sent {sentCount} email{sentCount !== 1 ? 's' : ''}!
+                  Successfully sent {sentCount} email{sentCount !== 1 ? 's' : ''} {attachTemplate ? 'with PDF attachment' : ''}!
                 </span>
               </div>
             </div>
@@ -433,7 +454,7 @@ hereby cautioned that any dissemination, distribution or copying of this communi
                 <span>
                   {sending
                     ? `Sending... (${sentCount}/${eligibleRecipients.length})`
-                    : `Send ${eligibleRecipients.length} Email${eligibleRecipients.length !== 1 ? 's' : ''}`}
+                    : `Send ${eligibleRecipients.length} Email${eligibleRecipients.length !== 1 ? 's' : ''}${attachTemplate ? ' with PDF' : ''}`}
                 </span>
               </button>
             )}

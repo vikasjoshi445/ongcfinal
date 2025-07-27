@@ -6,6 +6,8 @@ const multer = require('multer');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const nodemailer = require('nodemailer');
+const fs = require('fs');
+const path = require('path');
 
 dotenv.config();
 
@@ -359,7 +361,7 @@ app.post('/api/auth/logout', authenticateToken, (req, res) => {
 // Email sending endpoint
 app.post('/api/send-email', authenticateToken, async (req, res) => {
   try {
-    const { to, subject, html, text } = req.body;
+    const { to, subject, html, text, attachTemplate } = req.body;
     
     // Validate required fields
     if (!to || !subject || (!html && !text)) {
@@ -397,8 +399,30 @@ app.post('/api/send-email', authenticateToken, async (req, res) => {
       to: to,
       subject: subject,
       html: html,
-      text: text || html?.replace(/<[^>]*>/g, '') // Strip HTML tags for text version
+      text: text || html?.replace(/<[^>]*>/g, ''), // Strip HTML tags for text version
+      attachments: []
     };
+    
+    // Add PDF template attachment if requested
+    if (attachTemplate) {
+      const templatePath = path.join(__dirname, 'templates', 'template.pdf');
+      
+      try {
+        // Check if template file exists
+        if (fs.existsSync(templatePath)) {
+          mailOptions.attachments.push({
+            filename: 'ONGC_Internship_Application_Form.pdf',
+            path: templatePath,
+            contentType: 'application/pdf'
+          });
+        } else {
+          console.warn('Template PDF not found at:', templatePath);
+        }
+      } catch (attachError) {
+        console.error('Error attaching template:', attachError);
+        // Continue without attachment rather than failing the email
+      }
+    }
     
     // Send email
     const info = await transporter.sendMail(mailOptions);
@@ -439,7 +463,7 @@ app.post('/api/send-email', authenticateToken, async (req, res) => {
 // Bulk email sending endpoint
 app.post('/api/send-bulk-emails', authenticateToken, async (req, res) => {
   try {
-    const { emails } = req.body; // Array of { to, subject, html, text } objects
+    const { emails } = req.body; // Array of { to, subject, html, text, attachTemplate } objects
     
     if (!emails || !Array.isArray(emails) || emails.length === 0) {
       return res.status(400).json({
@@ -481,8 +505,26 @@ app.post('/api/send-bulk-emails', authenticateToken, async (req, res) => {
             to: emailData.to,
             subject: emailData.subject,
             html: emailData.html,
-            text: emailData.text || emailData.html?.replace(/<[^>]*>/g, '')
+            text: emailData.text || emailData.html?.replace(/<[^>]*>/g, ''),
+            attachments: []
           };
+          
+          // Add PDF template attachment if requested
+          if (emailData.attachTemplate) {
+            const templatePath = path.join(__dirname, 'templates', 'template.pdf');
+            
+            try {
+              if (fs.existsSync(templatePath)) {
+                mailOptions.attachments.push({
+                  filename: 'ONGC_Internship_Application_Form.pdf',
+                  path: templatePath,
+                  contentType: 'application/pdf'
+                });
+              }
+            } catch (attachError) {
+              console.error(`Error attaching template for ${emailData.to}:`, attachError);
+            }
+          }
           
           const info = await transporter.sendMail(mailOptions);
           
