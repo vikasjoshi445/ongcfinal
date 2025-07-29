@@ -389,7 +389,7 @@ hereby cautioned that any dissemination, distribution or copying of this communi
                 </span>
               </label>
               <p className="text-xs text-blue-700 mt-1">
-                Students will receive the official ONGC internship application form to fill and submit.
+                Students will receive a personalized ONGC internship application form pre-filled with their data.
               </p>
             </div>
             
