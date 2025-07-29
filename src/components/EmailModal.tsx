@@ -237,7 +237,8 @@ hereby cautioned that any dissemination, distribution or copying of this communi
             subject: subject,
             html: `<pre style="font-family: Arial, sans-serif; white-space: pre-wrap; font-size: 12px;">${emailContent}</pre>`,
             text: emailContent,
-            attachTemplate: attachTemplate
+            attachTemplate: attachTemplate,
+            applicantData: recipient // Pass full applicant data for PDF filling
           })
         });
 

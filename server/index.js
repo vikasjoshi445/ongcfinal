@@ -357,6 +357,190 @@ app.post('/api/auth/logout', authenticateToken, (req, res) => {
     message: 'Logged out successfully' 
   });
 });
+// Function to fill PDF form with applicant data
+const fillPDFForm = async (applicantData, registrationNumber) => {
+  try {
+    const templatePath = path.join(__dirname, 'templates', 'template.pdf');
+    
+    // Check if template exists
+    if (!fs.existsSync(templatePath)) {
+      console.warn('PDF template not found at:', templatePath);
+      return null;
+    }
+    
+    // Read the template PDF
+    const existingPdfBytes = fs.readFileSync(templatePath);
+    
+    // Load the PDF document
+    const pdfDoc = await PDFDocument.load(existingPdfBytes);
+    
+    // Get the form from the PDF
+    const form = pdfDoc.getForm();
+    
+    // Get all field names (for debugging - you can remove this later)
+    const fieldNames = form.getFields().map(field => field.getName());
+    console.log('Available PDF form fields:', fieldNames);
+    
+    // Helper function to safely set field value
+    const setFieldValue = (fieldName, value) => {
+      try {
+        const field = form.getField(fieldName);
+        if (field) {
+          // Convert value to string and handle null/undefined
+          const stringValue = value ? String(value).trim() : '';
+          
+          // Check field type and set accordingly
+          if (field.constructor.name === 'PDFTextField') {
+            field.setText(stringValue);
+          } else if (field.constructor.name === 'PDFCheckBox') {
+            // For checkboxes, check if value indicates true
+            const shouldCheck = stringValue.toLowerCase().includes('yes') || 
+                               stringValue.toLowerCase().includes('हां') ||
+                               stringValue === '1' ||
+                               stringValue.toLowerCase() === 'true';
+            if (shouldCheck) {
+              field.check();
+            }
+          } else if (field.constructor.name === 'PDFDropdown') {
+            // For dropdowns, try to select the option
+            const options = field.getOptions();
+            const matchingOption = options.find(opt => 
+              opt.toLowerCase().includes(stringValue.toLowerCase()) ||
+              stringValue.toLowerCase().includes(opt.toLowerCase())
+            );
+            if (matchingOption) {
+              field.select(matchingOption);
+            }
+          }
+          console.log(`Set field "${fieldName}" to "${stringValue}"`);
+        }
+      } catch (error) {
+        console.warn(`Could not set field "${fieldName}":`, error.message);
+      }
+    };
+    
+    // Fill the form fields with applicant data
+    // You may need to adjust these field names based on your actual PDF form
+    
+    // Basic Information
+    setFieldValue('name', applicantData.name);
+    setFieldValue('Name', applicantData.name);
+    setFieldValue('applicant_name', applicantData.name);
+    setFieldValue('student_name', applicantData.name);
+    
+    setFieldValue('email', applicantData.email);
+    setFieldValue('Email', applicantData.email);
+    setFieldValue('email_address', applicantData.email);
+    
+    setFieldValue('mobile', applicantData.mobileNo);
+    setFieldValue('Mobile', applicantData.mobileNo);
+    setFieldValue('mobile_no', applicantData.mobileNo);
+    setFieldValue('phone', applicantData.mobileNo);
+    
+    setFieldValue('age', applicantData.age);
+    setFieldValue('Age', applicantData.age);
+    
+    setFieldValue('gender', applicantData.gender);
+    setFieldValue('Gender', applicantData.gender);
+    
+    setFieldValue('category', applicantData.category);
+    setFieldValue('Category', applicantData.category);
+    
+    setFieldValue('address', applicantData.address);
+    setFieldValue('Address', applicantData.address);
+    
+    // Family Information
+    setFieldValue('father_mother_name', applicantData.fatherMotherName);
+    setFieldValue('father_name', applicantData.fatherMotherName);
+    setFieldValue('parent_name', applicantData.fatherMotherName);
+    
+    setFieldValue('father_mother_occupation', applicantData.fatherMotherOccupation);
+    setFieldValue('father_occupation', applicantData.fatherMotherOccupation);
+    setFieldValue('parent_occupation', applicantData.fatherMotherOccupation);
+    
+    // Academic Information
+    setFieldValue('institute', applicantData.presentInstitute);
+    setFieldValue('Institute', applicantData.presentInstitute);
+    setFieldValue('college', applicantData.presentInstitute);
+    setFieldValue('present_institute', applicantData.presentInstitute);
+    
+    setFieldValue('semester', applicantData.presentSemester);
+    setFieldValue('Semester', applicantData.presentSemester);
+    setFieldValue('present_semester', applicantData.presentSemester);
+    
+    setFieldValue('sgpa', applicantData.lastSemesterSGPA);
+    setFieldValue('SGPA', applicantData.lastSemesterSGPA);
+    setFieldValue('last_semester_sgpa', applicantData.lastSemesterSGPA);
+    
+    setFieldValue('percentage_12th', applicantData.percentageIn10Plus2);
+    setFieldValue('12th_percentage', applicantData.percentageIn10Plus2);
+    setFieldValue('percentage_10_2', applicantData.percentageIn10Plus2);
+    
+    setFieldValue('training_area', applicantData.areasOfTraining);
+    setFieldValue('areas_of_training', applicantData.areasOfTraining);
+    setFieldValue('training_areas', applicantData.areasOfTraining);
+    
+    // ONGC Specific Information
+    setFieldValue('cpf', applicantData.cpf);
+    setFieldValue('CPF', applicantData.cpf);
+    setFieldValue('cpf_number', applicantData.cpf);
+    
+    setFieldValue('designation', applicantData.designation);
+    setFieldValue('Designation', applicantData.designation);
+    
+    setFieldValue('section', applicantData.section);
+    setFieldValue('Section', applicantData.section);
+    
+    setFieldValue('location', applicantData.location);
+    setFieldValue('Location', applicantData.location);
+    
+    // Mentor Information
+    setFieldValue('mentor_name', applicantData.mentorName);
+    setFieldValue('mentor_designation', applicantData.mentorDesignation);
+    setFieldValue('mentor_section', applicantData.mentorSection);
+    setFieldValue('mentor_location', applicantData.mentorLocation);
+    setFieldValue('mentor_email', applicantData.mentorEmail);
+    setFieldValue('mentor_cpf', applicantData.mentorCPF);
+    setFieldValue('mentor_mobile', applicantData.mentorMobileNo);
+    
+    // Registration and System Information
+    setFieldValue('registration_number', registrationNumber);
+    setFieldValue('reg_number', registrationNumber);
+    setFieldValue('registration_no', registrationNumber);
+    
+    setFieldValue('term', applicantData.term);
+    setFieldValue('Term', applicantData.term);
+    
+    setFieldValue('quota_category', applicantData.quotaCategory);
+    setFieldValue('quota', applicantData.quotaCategory);
+    
+    // Current date
+    const currentDate = new Date().toLocaleDateString('en-IN');
+    setFieldValue('date', currentDate);
+    setFieldValue('Date', currentDate);
+    setFieldValue('application_date', currentDate);
+    
+    // Declarations (if they exist as checkboxes)
+    setFieldValue('declaration_01', applicantData.declaration01);
+    setFieldValue('declaration_02', applicantData.declaration02);
+    setFieldValue('declaration_03', applicantData.declaration03);
+    
+    setFieldValue('instruction_acknowledged', applicantData.instructionAcknowledged);
+    setFieldValue('training_acknowledgement', applicantData.trainingAcknowledgement);
+    
+    // Flatten the form to prevent further editing
+    form.flatten();
+    
+    // Serialize the PDF
+    const pdfBytes = await pdfDoc.save();
+    
+    return pdfBytes;
+    
+  } catch (error) {
+    console.error('Error filling PDF form:', error);
+    return null;
+  }
+};
 
 // Email sending endpoint
 app.post('/api/send-email', authenticateToken, async (req, res) => {
@@ -405,22 +589,56 @@ app.post('/api/send-email', authenticateToken, async (req, res) => {
     
     // Add PDF template attachment if requested
     if (attachTemplate) {
-      const templatePath = path.join(__dirname, 'templates', 'template.pdf');
+      // Check if we have applicant data to fill the form
+      let pdfBuffer = null;
       
-      try {
-        // Check if template file exists
-        if (fs.existsSync(templatePath)) {
-          mailOptions.attachments.push({
-            filename: 'ONGC_Internship_Application_Form.pdf',
-            path: templatePath,
-            contentType: 'application/pdf'
-          });
-        } else {
-          console.warn('Template PDF not found at:', templatePath);
+      // Try to extract applicant data from email content for form filling
+      if (html && html.includes('Registration number is:')) {
+        try {
+          // Extract registration number from email content
+          const regMatch = html.match(/SAIL-\d{4}-\d{4}/);
+          const registrationNumber = regMatch ? regMatch[0] : '';
+          
+          // Create mock applicant data from email recipient
+          // In a real implementation, you'd pass the full applicant data
+          const applicantData = {
+            name: to.split('@')[0], // Basic fallback
+            email: to,
+            registrationNumber: registrationNumber,
+            // Add other fields as available
+          };
+          
+          // Fill the PDF form
+          pdfBuffer = await fillPDFForm(applicantData, registrationNumber);
+        } catch (error) {
+          console.error('Error creating filled PDF:', error);
         }
-      } catch (attachError) {
-        console.error('Error attaching template:', attachError);
-        // Continue without attachment rather than failing the email
+      }
+      
+      if (pdfBuffer) {
+        // Use filled PDF
+        mailOptions.attachments.push({
+          filename: 'ONGC_Internship_Application_Form_Filled.pdf',
+          content: pdfBuffer,
+          contentType: 'application/pdf'
+        });
+      } else {
+        // Fallback to blank template
+        const templatePath = path.join(__dirname, 'templates', 'template.pdf');
+        
+        try {
+          if (fs.existsSync(templatePath)) {
+            mailOptions.attachments.push({
+              filename: 'ONGC_Internship_Application_Form.pdf',
+              path: templatePath,
+              contentType: 'application/pdf'
+            });
+          } else {
+            console.warn('Template PDF not found at:', templatePath);
+          }
+        } catch (attachError) {
+          console.error('Error attaching template:', attachError);
+        }
       }
     }
     
@@ -511,18 +729,43 @@ app.post('/api/send-bulk-emails', authenticateToken, async (req, res) => {
           
           // Add PDF template attachment if requested
           if (emailData.attachTemplate) {
-            const templatePath = path.join(__dirname, 'templates', 'template.pdf');
+            // Try to fill PDF with applicant data if available
+            let pdfBuffer = null;
             
-            try {
-              if (fs.existsSync(templatePath)) {
-                mailOptions.attachments.push({
-                  filename: 'ONGC_Internship_Application_Form.pdf',
-                  path: templatePath,
-                  contentType: 'application/pdf'
-                });
+            if (emailData.applicantData) {
+              try {
+                // Extract registration number from email content
+                const regMatch = emailData.html ? emailData.html.match(/SAIL-\d{4}-\d{4}/) : null;
+                const registrationNumber = regMatch ? regMatch[0] : '';
+                
+                pdfBuffer = await fillPDFForm(emailData.applicantData, registrationNumber);
+              } catch (error) {
+                console.error(`Error creating filled PDF for ${emailData.to}:`, error);
               }
-            } catch (attachError) {
-              console.error(`Error attaching template for ${emailData.to}:`, attachError);
+            }
+            
+            if (pdfBuffer) {
+              // Use filled PDF
+              mailOptions.attachments.push({
+                filename: 'ONGC_Internship_Application_Form_Filled.pdf',
+                content: pdfBuffer,
+                contentType: 'application/pdf'
+              });
+            } else {
+              // Fallback to blank template
+              const templatePath = path.join(__dirname, 'templates', 'template.pdf');
+              
+              try {
+                if (fs.existsSync(templatePath)) {
+                  mailOptions.attachments.push({
+                    filename: 'ONGC_Internship_Application_Form.pdf',
+                    path: templatePath,
+                    contentType: 'application/pdf'
+                  });
+                }
+              } catch (attachError) {
+                console.error(`Error attaching template for ${emailData.to}:`, attachError);
+              }
             }
           }
           
