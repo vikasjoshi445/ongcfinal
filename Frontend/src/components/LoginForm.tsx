@@ -129,15 +129,6 @@ const LoginForm: React.FC = () => {
               )}
             </button>
           </form>
-
-          {/* Demo Credentials */}
-          <div className="mt-6 p-4 bg-gray-50 rounded-lg">
-            <h3 className="text-sm font-medium text-gray-700 mb-2">Demo Credentials:</h3>
-            <div className="text-xs text-gray-600 space-y-1">
-              <div><strong>HR Manager:</strong> hr@ongc.co.in / password123</div>
-              <div><strong>Admin:</strong> admin@ongc.co.in / admin123</div>
-            </div>
-          </div>
         </div>
 
         {/* Footer */}

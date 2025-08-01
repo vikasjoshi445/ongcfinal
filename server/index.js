@@ -9,17 +9,39 @@ const nodemailer = require('nodemailer');
 const fs = require('fs');
 const path = require('path');
 
+// SQL Database imports
+const { testConnection, syncDatabase } = require('./config/database');
+const { initializeSQLUsers } = require('./utils/authHelpers');
+const { router: authRouter, authenticateToken, requireRole } = require('./routes/auth');
+
+// Production imports
+const { productionMiddleware, productionErrorHandler, connectWithRetry } = require('./config/production');
+
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Middleware
-app.use(cors({
-  origin: 'http://localhost:5173',
-  credentials: true
-}));
-app.use(express.json());
+// Production middleware (if in production)
+if (process.env.NODE_ENV === 'production') {
+  productionMiddleware(app);
+} else {
+  // Development logging - simple console logging
+  console.log('🔧 Development mode - using console logging');
+}
+
+// CORS configuration
+const corsOptions = {
+  origin: process.env.CORS_ORIGIN ? 
+    process.env.CORS_ORIGIN.split(',') : 
+    ['http://localhost:5173', 'http://localhost:3000'],
+  credentials: true,
+  optionsSuccessStatus: 200
+};
+
+app.use(cors(corsOptions));
+app.use(express.json({ limit: process.env.MAX_FILE_SIZE || '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: process.env.MAX_FILE_SIZE || '10mb' }));
 
 // Configure multer for file uploads
 const upload = multer({
@@ -75,7 +97,13 @@ let nextApplicantId = 1;
 
 // Configure Nodemailer transporter
 const createEmailTransporter = () => {
-  return nodemailer.createTransport({
+  console.log('📧 Configuring email transporter...');
+  console.log(`📮 Host: ${process.env.EMAIL_HOST || 'smtp.gmail.com'}`);
+  console.log(`🔌 Port: ${process.env.EMAIL_PORT || 587}`);
+  console.log(`👤 User: ${process.env.EMAIL_USER || 'Not configured'}`);
+  console.log(`🔐 Password: ${process.env.EMAIL_PASS ? '***configured***' : 'Not configured'}`);
+  
+  const transporter = nodemailer.createTransport({
     host: process.env.EMAIL_HOST || 'smtp.gmail.com',
     port: parseInt(process.env.EMAIL_PORT) || 587,
     secure: false, // true for 465, false for other ports
@@ -87,6 +115,9 @@ const createEmailTransporter = () => {
       rejectUnauthorized: false
     }
   });
+  
+  console.log('✅ Email transporter configured successfully.');
+  return transporter;
 };
 
 // Define schemas and models (always available)
@@ -157,20 +188,57 @@ const applicantSchema = new mongoose.Schema({
 const User = mongoose.model('User', userSchema);
 const Applicant = mongoose.model('Applicant', applicantSchema);
 
+// SQL Database connection
+const connectSQLDB = async () => {
+  try {
+    console.log('🗄️  Initializing SQL database connection...');
+    
+    // First, create database if it doesn't exist
+    const { createDatabaseIfNotExists } = require('./config/database');
+    await createDatabaseIfNotExists();
+    
+    // Then test connection
+    const isConnected = await testConnection();
+    if (isConnected) {
+      await syncDatabase();
+      await initializeSQLUsers();
+      console.log('✅ SQL Database setup completed');
+      return true;
+    }
+    return false;
+  } catch (error) {
+    console.error('❌ SQL Database connection failed:', error.message);
+    return false;
+  }
+};
+
 // MongoDB connection with fallback to in-memory storage
 const connectDB = async () => {
   try {
     const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27017/ongc-internship';
+    console.log('🗄️  Connecting to MongoDB...');
+    console.log(`📊 URI: ${mongoUri}`);
+    
     await mongoose.connect(mongoUri, {
       useNewUrlParser: true,
       useUnifiedTopology: true,
       serverSelectionTimeoutMS: 5000 // 5 second timeout
     });
-    console.log('Connected to MongoDB');
+    console.log('✅ Connected to MongoDB successfully');
+    
+    // Log MongoDB statistics
+    const db = mongoose.connection.db;
+    const collections = await db.listCollections().toArray();
+    console.log(`📊 MongoDB Collections: ${collections.map(c => c.name).join(', ')}`);
+    
+    // Check applicant data
+    const applicantCount = await Applicant.countDocuments();
+    console.log(`👥 Total Applicants in MongoDB: ${applicantCount}`);
+    
     await initializeMongoUsers();
   } catch (error) {
-    console.warn('MongoDB connection failed, using in-memory storage:', error.message);
-    console.log('Server running with in-memory storage (data will not persist)');
+    console.warn('⚠️  MongoDB connection failed, using in-memory storage:', error.message);
+    console.log('💾 Server running with in-memory storage (data will not persist)');
     await initializeInMemoryUsers();
   }
 };
@@ -222,141 +290,9 @@ const initializeInMemoryUsers = async () => {
   }
 };
 
-// Middleware for authentication
-const authenticateToken = async (req, res, next) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
+// Note: authenticateToken and requireRole are imported from routes/auth.js
 
-  if (!token) {
-    return res.status(401).json({ error: 'Access token required' });
-  }
-
-  try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
-    
-    let user;
-    if (mongoose.connection.readyState === 1) {
-      // MongoDB is connected
-      user = await User.findById(decoded.userId).select('-password');
-    } else {
-      // Use in-memory storage
-      user = users.find(u => u._id === decoded.userId);
-      if (user) {
-        const { password, ...userWithoutPassword } = user;
-        user = userWithoutPassword;
-      }
-    }
-    
-    if (!user || !user.isActive) {
-      return res.status(401).json({ error: 'Invalid or inactive user' });
-    }
-    
-    req.user = user;
-    next();
-  } catch (error) {
-    return res.status(403).json({ error: 'Invalid token' });
-  }
-};
-
-// Middleware for role-based access
-const requireRole = (roles) => {
-  return (req, res, next) => {
-    if (!req.user || !roles.includes(req.user.role)) {
-      return res.status(403).json({ error: 'Insufficient permissions' });
-    }
-    next();
-  };
-};
-
-// Authentication Routes
-app.post('/api/auth/login', async (req, res) => {
-  try {
-    const { email, password } = req.body;
-    
-    if (!email || !password) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Email and password are required' 
-      });
-    }
-    
-    let user;
-    if (mongoose.connection.readyState === 1) {
-      // MongoDB is connected
-      user = await User.findOne({ email: email.toLowerCase() });
-    } else {
-      // Use in-memory storage
-      user = users.find(u => u.email.toLowerCase() === email.toLowerCase());
-    }
-    
-    if (!user) {
-      return res.status(401).json({ 
-        success: false, 
-        message: 'Invalid email or password' 
-      });
-    }
-    
-    if (!user.isActive) {
-      return res.status(401).json({ 
-        success: false, 
-        message: 'Account is deactivated' 
-      });
-    }
-    
-    // Check password
-    const isValidPassword = await bcrypt.compare(password, user.password);
-    
-    if (!isValidPassword) {
-      return res.status(401).json({ 
-        success: false, 
-        message: 'Invalid email or password' 
-      });
-    }
-    
-    // Update last login
-    user.lastLogin = new Date();
-    if (mongoose.connection.readyState === 1) {
-      await user.save();
-    }
-    
-    // Generate JWT token
-    const token = jwt.sign(
-      { userId: user._id, email: user.email, role: user.role },
-      process.env.JWT_SECRET || 'your-secret-key',
-      { expiresIn: '24h' }
-    );
-    
-    // Return user data without password
-    const { password: _, ...userWithoutPassword } = user.toObject ? user.toObject() : user;
-    
-    res.json({
-      success: true,
-      token,
-      user: userWithoutPassword
-    });
-    
-  } catch (error) {
-    console.error('Login error:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Internal server error' 
-    });
-  }
-});
-
-app.get('/api/auth/verify', authenticateToken, (req, res) => {
-  res.json({ 
-    success: true, 
-    user: req.user 
-  });
-});
-
-app.post('/api/auth/logout', authenticateToken, (req, res) => {
-  res.json({ 
-    success: true, 
-    message: 'Logged out successfully' 
-  });
-});
+// Authentication routes are handled by authRouter
 // Function to fill PDF form with applicant data
 const fillPDFForm = async (applicantData, registrationNumber) => {
   try {
@@ -547,8 +483,14 @@ app.post('/api/send-email', authenticateToken, async (req, res) => {
   try {
     const { to, subject, html, text, attachTemplate } = req.body;
     
+    console.log('📧 Email sending request received:');
+    console.log(`   📮 To: ${to}`);
+    console.log(`   📝 Subject: ${subject}`);
+    console.log(`   📎 Attach Template: ${attachTemplate ? 'Yes' : 'No'}`);
+    
     // Validate required fields
     if (!to || !subject || (!html && !text)) {
+      console.log('❌ Missing required email fields');
       return res.status(400).json({
         success: false,
         message: 'Missing required fields: to, subject, and html/text content'
@@ -557,6 +499,7 @@ app.post('/api/send-email', authenticateToken, async (req, res) => {
     
     // Check if email configuration is available
     if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
+      console.log('❌ Email configuration not found');
       return res.status(500).json({
         success: false,
         message: 'Email configuration not found. Please configure EMAIL_USER and EMAIL_PASS in environment variables.'
@@ -564,13 +507,16 @@ app.post('/api/send-email', authenticateToken, async (req, res) => {
     }
     
     // Create transporter
+    console.log('🔧 Creating email transporter...');
     const transporter = createEmailTransporter();
     
     // Verify transporter configuration
     try {
+      console.log('🔍 Verifying email transporter...');
       await transporter.verify();
+      console.log('✅ Email transporter verified successfully.');
     } catch (verifyError) {
-      console.error('Email transporter verification failed:', verifyError);
+      console.error('❌ Email transporter verification failed:', verifyError);
       return res.status(500).json({
         success: false,
         message: 'Email service configuration error. Please check your email credentials.'
@@ -819,38 +765,84 @@ app.post('/api/send-bulk-emails', authenticateToken, async (req, res) => {
   }
 });
 
+// Authentication routes (SQL Database)
+app.use('/api/auth', authRouter);
+
 // Health check endpoint
 app.get('/api/health', (req, res) => {
-  const dbStatus = mongoose.connection.readyState === 1 ? 'MongoDB Connected' : 'In-Memory Storage';
+  const mongoStatus = mongoose.connection.readyState === 1 ? 'MongoDB Connected' : 'In-Memory Storage';
   const emailConfigured = !!(process.env.EMAIL_USER && process.env.EMAIL_PASS);
   
   res.json({ 
     status: 'OK', 
     timestamp: new Date().toISOString(),
-    database: dbStatus,
+    mongodb: mongoStatus,
+    sql: 'Available for Authentication',
     email: emailConfigured ? 'Configured' : 'Not Configured'
   });
 });
 
-// Error handling middleware
-app.use((error, req, res, next) => {
-  if (error instanceof multer.MulterError) {
-    if (error.code === 'LIMIT_FILE_SIZE') {
-      return res.status(400).json({ error: 'File too large. Maximum size is 10MB.' });
+// Production error handling
+if (process.env.NODE_ENV === 'production') {
+  app.use(productionErrorHandler);
+} else {
+  // Development error handling
+  app.use((error, req, res, next) => {
+    if (error instanceof multer.MulterError) {
+      if (error.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ error: 'File too large. Maximum size is 10MB.' });
+      }
     }
-  }
-  
-  console.error('Unhandled error:', error);
-  res.status(500).json({ error: 'Internal server error' });
-});
-
-// Connect to database and start server
-connectDB().then(() => {
-  app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-    console.log(`Health check: http://localhost:${PORT}/api/health`);
-    console.log('Demo credentials:');
-    console.log('HR Manager: hr@ongc.co.in / password123');
-    console.log('Admin: admin@ongc.co.in / admin123');
+    
+    console.error('Unhandled error:', error);
+    res.status(500).json({ error: 'Internal server error' });
   });
-});
+}
+
+// Connect to databases and start server
+const startServer = async () => {
+  try {
+    // Connect to SQL database for authentication with retry
+    await connectWithRetry(connectSQLDB);
+    
+    // Connect to MongoDB for applicant data with retry
+    await connectWithRetry(connectDB);
+    
+    const server = app.listen(PORT, () => {
+      console.log(`🚀 Server running on port ${PORT}`);
+      console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`📊 Health check: http://localhost:${PORT}/api/health`);
+      
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('🔐 Authentication Demo credentials:');
+        console.log('   HR Manager: hr@ongc.co.in / password123');
+        console.log('   Admin: admin@ongc.co.in / admin123');
+        console.log('   Viewer: viewer@ongc.co.in / viewer123');
+        console.log('📝 Note: MongoDB handles applicant data, SQL handles authentication');
+      }
+    });
+
+    // Graceful shutdown
+    process.on('SIGTERM', () => {
+      console.log('SIGTERM received, shutting down gracefully');
+      server.close(() => {
+        console.log('Process terminated');
+        process.exit(0);
+      });
+    });
+
+    process.on('SIGINT', () => {
+      console.log('SIGINT received, shutting down gracefully');
+      server.close(() => {
+        console.log('Process terminated');
+        process.exit(0);
+      });
+    });
+    
+  } catch (error) {
+    console.error('❌ Server startup failed:', error);
+    process.exit(1);
+  }
+};
+
+startServer();

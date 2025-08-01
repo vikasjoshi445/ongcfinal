@@ -46,7 +46,7 @@ const ApplicantTable: React.FC<ApplicantTableProps> = ({
   showEmailButton = false
 }) => {
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage] = useState(10);
+  const [itemsPerPage] = useState(50); // Changed to 50 records per page
   const [selectedApplicant, setSelectedApplicant] = useState<Applicant | null>(null);
   const [selectedApplicants, setSelectedApplicants] = useState<Set<string>>(new Set());
 
