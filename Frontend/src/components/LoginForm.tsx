@@ -20,9 +20,11 @@ const LoginForm: React.FC = () => {
       setError('Please enter both email and password');
       return;
     }
+    console.log(credentials);
 
     const result = await login(credentials);
-    
+    console.log(result);
+
     if (!result.success) {
       setError(result.message || 'Login failed. Please try again.');
     }

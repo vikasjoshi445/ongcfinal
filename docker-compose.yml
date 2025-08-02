@@ -15,7 +15,7 @@ services:
       - mysql_data:/var/lib/mysql
       - ./server/scripts/setup-database.sql:/docker-entrypoint-initdb.d/setup.sql
     ports:
-      - "3306:3306"
+      - "3307:3306"  # Changed from 3306 to 3307
     networks:
       - ongc-network
     healthcheck:
@@ -33,7 +33,7 @@ services:
     volumes:
       - mongodb_data:/data/db
     ports:
-      - "27017:27017"
+      - "27018:27017"  # Changed from 27017 to 27018
     networks:
       - ongc-network
     healthcheck:

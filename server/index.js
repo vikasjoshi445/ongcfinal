@@ -8,27 +8,92 @@ const jwt = require('jsonwebtoken');
 const nodemailer = require('nodemailer');
 const fs = require('fs');
 const path = require('path');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+const compression = require('compression');
+const morgan = require('morgan');
 
 // SQL Database imports
 const { testConnection, syncDatabase } = require('./config/database');
 const { initializeSQLUsers } = require('./utils/authHelpers');
 const { router: authRouter, authenticateToken, requireRole } = require('./routes/auth');
 
-// Production imports
-const { productionMiddleware, productionErrorHandler, connectWithRetry } = require('./config/production');
+// MongoDB imports
+const Applicant = require('./models/Applicant');
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Production middleware (if in production)
-if (process.env.NODE_ENV === 'production') {
-  productionMiddleware(app);
-} else {
-  // Development logging - simple console logging
-  console.log('🔧 Development mode - using console logging');
+// Security middleware
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: ["'self'"],
+      imgSrc: ["'self'", "data:", "https:"],
+      connectSrc: ["'self'"],
+      fontSrc: ["'self'"],
+      objectSrc: ["'none'"],
+      mediaSrc: ["'self'"],
+      frameSrc: ["'none'"],
+    },
+  },
+  hsts: {
+    maxAge: 31536000,
+    includeSubDomains: true,
+    preload: true
+  }
+}));
+
+// Rate limiting
+const limiter = rateLimit({
+  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
+  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 500,
+  message: {
+    error: 'Too many requests from this IP, please try again later.'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.use(limiter);
+
+// Stricter rate limiting for authentication routes
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: {
+    error: 'Too many authentication attempts, please try again later.'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.use('/api/auth', authLimiter);
+
+// Compression
+app.use(compression());
+
+// Trust proxy (if behind reverse proxy)
+if (process.env.TRUST_PROXY === 'true') {
+  app.set('trust proxy', 1);
 }
+
+// Logging
+const logFile = process.env.LOG_FILE || './logs/app.log';
+const logDir = path.dirname(logFile);
+
+// Create logs directory if it doesn't exist
+if (!fs.existsSync(logDir)) {
+  fs.mkdirSync(logDir, { recursive: true });
+}
+
+const accessLogStream = fs.createWriteStream(logFile, { flags: 'a' });
+app.use(morgan('combined', { stream: accessLogStream }));
+app.use(morgan('combined')); // Also log to console
 
 // CORS configuration
 const corsOptions = {
@@ -103,6 +168,7 @@ const createEmailTransporter = () => {
   console.log(`👤 User: ${process.env.EMAIL_USER || 'Not configured'}`);
   console.log(`🔐 Password: ${process.env.EMAIL_PASS ? '***configured***' : 'Not configured'}`);
   
+  // Use real email transporter (no more mock for development)
   const transporter = nodemailer.createTransport({
     host: process.env.EMAIL_HOST || 'smtp.gmail.com',
     port: parseInt(process.env.EMAIL_PORT) || 587,
@@ -186,7 +252,6 @@ const applicantSchema = new mongoose.Schema({
 });
 
 const User = mongoose.model('User', userSchema);
-const Applicant = mongoose.model('Applicant', applicantSchema);
 
 // SQL Database connection
 const connectSQLDB = async () => {
@@ -768,6 +833,19 @@ app.post('/api/send-bulk-emails', authenticateToken, async (req, res) => {
 // Authentication routes (SQL Database)
 app.use('/api/auth', authRouter);
 
+// Applicant routes (MongoDB)
+const applicantRouter = require('./routes/applicants');
+app.use('/api/applicants', applicantRouter);
+
+// Legacy route redirects (for backward compatibility)
+app.get('/api/shortlisted', authenticateToken, (req, res) => {
+  res.redirect('/api/applicants/shortlisted');
+});
+
+app.get('/api/approved', authenticateToken, (req, res) => {
+  res.redirect('/api/applicants/approved');
+});
+
 // Health check endpoint
 app.get('/api/health', (req, res) => {
   const mongoStatus = mongoose.connection.readyState === 1 ? 'MongoDB Connected' : 'In-Memory Storage';
@@ -782,44 +860,131 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Production error handling
-if (process.env.NODE_ENV === 'production') {
-  app.use(productionErrorHandler);
-} else {
-  // Development error handling
-  app.use((error, req, res, next) => {
-    if (error instanceof multer.MulterError) {
-      if (error.code === 'LIMIT_FILE_SIZE') {
-        return res.status(400).json({ error: 'File too large. Maximum size is 10MB.' });
-      }
+// Test email endpoint (no authentication required)
+app.post('/api/test-email', async (req, res) => {
+  try {
+    const { to, subject, html } = req.body;
+    
+    console.log('📧 Test email request received:');
+    console.log(`   📮 To: ${to}`);
+    console.log(`   📝 Subject: ${subject}`);
+    
+    // Validate required fields
+    if (!to || !subject || !html) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required fields: to, subject, html'
+      });
     }
     
-    console.error('Unhandled error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    // Check if email configuration is available
+    if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
+      return res.status(500).json({
+        success: false,
+        message: 'Email configuration not found. Please configure EMAIL_USER and EMAIL_PASS in environment variables.'
+      });
+    }
+    
+    // Create transporter
+    const transporter = createEmailTransporter();
+    
+    // Verify transporter configuration
+    try {
+      await transporter.verify();
+      console.log('✅ Email transporter verified successfully.');
+    } catch (verifyError) {
+      console.error('❌ Email transporter verification failed:', verifyError);
+      return res.status(500).json({
+        success: false,
+        message: 'Email service configuration error. Please check your email credentials.'
+      });
+    }
+    
+    // Email options
+    const mailOptions = {
+      from: `"ONGC Dehradun - SAIL" <${process.env.EMAIL_USER}>`,
+      to: to,
+      subject: subject,
+      html: html,
+      text: html.replace(/<[^>]*>/g, '') // Strip HTML tags for text version
+    };
+    
+    // Send email
+    const info = await transporter.sendMail(mailOptions);
+    
+    console.log('✅ Test email sent successfully:', {
+      messageId: info.messageId,
+      to: to,
+      subject: subject
+    });
+    
+    res.json({
+      success: true,
+      message: 'Test email sent successfully',
+      messageId: info.messageId
+    });
+    
+  } catch (error) {
+    console.error('❌ Test email sending error:', error);
+    
+    let errorMessage = 'Failed to send test email';
+    if (error.code === 'EAUTH') {
+      errorMessage = 'Email authentication failed. Please check your email credentials.';
+    } else if (error.code === 'ECONNECTION') {
+      errorMessage = 'Failed to connect to email server. Please check your network connection.';
+    }
+    
+    res.status(500).json({
+      success: false,
+      message: errorMessage,
+      error: process.env.NODE_ENV === 'production' ? undefined : error.message
+    });
+  }
+});
+
+// Error handling
+app.use((error, req, res, next) => {
+  if (error instanceof multer.MulterError) {
+    if (error.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ error: 'File too large. Maximum size is 10MB.' });
+    }
+  }
+  
+  console.error('Unhandled error:', error);
+  
+  // Don't leak error details in production
+  if (process.env.NODE_ENV === 'production') {
+    return res.status(500).json({
+      error: 'Internal server error',
+      message: 'Something went wrong'
+    });
+  }
+
+  // In development, show more details
+  res.status(500).json({
+    error: error.message,
+    stack: error.stack
   });
-}
+});
 
 // Connect to databases and start server
 const startServer = async () => {
   try {
-    // Connect to SQL database for authentication with retry
-    await connectWithRetry(connectSQLDB);
+    // Connect to SQL database for authentication
+    await connectSQLDB();
     
-    // Connect to MongoDB for applicant data with retry
-    await connectWithRetry(connectDB);
+    // Connect to MongoDB for applicant data
+    await connectDB();
     
     const server = app.listen(PORT, () => {
       console.log(`🚀 Server running on port ${PORT}`);
-      console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`🌍 Environment: ${process.env.NODE_ENV || 'production'}`);
       console.log(`📊 Health check: http://localhost:${PORT}/api/health`);
-      
-      if (process.env.NODE_ENV !== 'production') {
-        console.log('🔐 Authentication Demo credentials:');
-        console.log('   HR Manager: hr@ongc.co.in / password123');
-        console.log('   Admin: admin@ongc.co.in / admin123');
-        console.log('   Viewer: viewer@ongc.co.in / viewer123');
-        console.log('📝 Note: MongoDB handles applicant data, SQL handles authentication');
-      }
+      console.log('🔐 Authentication Demo credentials:');
+      console.log('   HR Manager: hr@ongc.co.in / password123');
+      console.log('   Admin: admin@ongc.co.in / admin123');
+      console.log('   Viewer: viewer@ongc.co.in / viewer123');
+      console.log('📝 Note: MongoDB handles applicant data, SQL handles authentication');
     });
 
     // Graceful shutdown

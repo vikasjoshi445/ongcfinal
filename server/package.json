@@ -4,8 +4,10 @@
   "description": "Backend server for ONGC Internship ATS",
   "main": "index.js",
   "scripts": {
-    "dev": "nodemon index.js",
-    "start": "node index.js"
+    "start": "npm run setup-mysql && node index.js",
+    "dev": "npm run setup-mysql && nodemon index.js",
+    "setup-db": "node scripts/setup.js",
+    "setup-mysql": "./scripts/setup-mysql.sh"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

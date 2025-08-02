@@ -14,7 +14,7 @@ export const parseExcelFile = (file: File): Promise<any[]> => {
         
         // Get raw data with header: 1 to handle the timestamp column properly
         const rawData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
-        const processedData = processRawExcelData(rawData);
+        const processedData = processRawExcelData(rawData as any[][]);
         
         resolve(processedData);
       } catch (error) {
@@ -38,7 +38,7 @@ const processRawExcelData = (rawData: any[][]): any[] => {
     if (index === 0 && (!header || header.trim() === '')) {
       // Check if first column contains timestamp-like data
       const firstDataValue = dataRows[0]?.[0];
-      if (firstDataValue && isTimestampLike(String(firstDataValue))) {
+      if (firstDataValue && isTimestampLikeEnhanced(String(firstDataValue))) {
         return 'Timestamp';
       }
     }
@@ -66,6 +66,164 @@ const isTimestampLike = (value: string): boolean => {
   return timestampPatterns.some(pattern => pattern.test(value.trim()));
 };
 
+// Dynamic delimiter detection
+const detectDelimiter = (text: string): string => {
+  const firstLine = text.split('\n')[0];
+  const delimiters = [',', '\t', ';', '|'];
+  
+  console.log('First line for delimiter detection:', firstLine);
+  
+  for (const delimiter of delimiters) {
+    const parts = firstLine.split(delimiter);
+    console.log(`Testing delimiter "${delimiter}": ${parts.length} parts`);
+    if (parts.length > 1) {
+      console.log(`Found delimiter: "${delimiter}" with ${parts.length} parts`);
+      return delimiter;
+    }
+  }
+  
+  // If no delimiter found, try to detect by analyzing the line structure
+  console.log('No standard delimiter found, analyzing line structure...');
+  
+  // Check for common patterns
+  if (firstLine.includes(',')) {
+    console.log('Found comma in line, using comma delimiter');
+    return ',';
+  }
+  
+  if (firstLine.includes('\t')) {
+    console.log('Found tab in line, using tab delimiter');
+    return '\t';
+  }
+  
+  console.log('No delimiter found, defaulting to comma');
+  return ','; // Default to comma
+};
+
+// Enhanced date parsing with multiple formats
+const parseDate = (dateStr: string): Date | null => {
+  if (!dateStr || typeof dateStr !== 'string') return null;
+  
+  const trimmed = dateStr.trim();
+  if (!trimmed) return null;
+  
+  // Common date patterns
+  const patterns = [
+    // MM/DD/YYYY HH:MM:SS
+    /^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})$/,
+    // DD/MM/YYYY HH:MM:SS
+    /^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})$/,
+    // YYYY-MM-DD HH:MM:SS
+    /^(\d{4})-(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{2}):(\d{2})$/,
+    // MM/DD/YYYY
+    /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/,
+    // DD/MM/YYYY
+    /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/,
+    // YYYY-MM-DD
+    /^(\d{4})-(\d{1,2})-(\d{1,2})$/,
+    // DD-MM-YYYY
+    /^(\d{1,2})-(\d{1,2})-(\d{4})$/,
+    // MM-DD-YYYY
+    /^(\d{1,2})-(\d{1,2})-(\d{4})$/
+  ];
+  
+  for (let i = 0; i < patterns.length; i++) {
+    const match = trimmed.match(patterns[i]);
+    if (match) {
+      try {
+        let year: string, month: string, day: string, hour: string = '0', minute: string = '0', second: string = '0';
+        
+        if (i < 3) {
+          // Full datetime format
+          if (i === 0) {
+            // MM/DD/YYYY HH:MM:SS
+            const [, m, d, y, h, min, s] = match as string[];
+            month = m; day = d; year = y; hour = h; minute = min; second = s;
+          } else if (i === 1) {
+            // DD/MM/YYYY HH:MM:SS
+            const [, d, m, y, h, min, s] = match as string[];
+            day = d; month = m; year = y; hour = h; minute = min; second = s;
+          } else {
+            // YYYY-MM-DD HH:MM:SS
+            const [, y, m, d, h, min, s] = match as string[];
+            year = y; month = m; day = d; hour = h; minute = min; second = s;
+          }
+        } else {
+          // Date only format
+          if (i === 3) {
+            // MM/DD/YYYY
+            const [, m, d, y] = match as string[];
+            month = m; day = d; year = y;
+          } else if (i === 4) {
+            // DD/MM/YYYY
+            const [, d, m, y] = match as string[];
+            day = d; month = m; year = y;
+          } else if (i === 5) {
+            // YYYY-MM-DD
+            const [, y, m, d] = match as string[];
+            year = y; month = m; day = d;
+          } else if (i === 6) {
+            // DD-MM-YYYY
+            const [, d, m, y] = match as string[];
+            day = d; month = m; year = y;
+          } else {
+            // MM-DD-YYYY
+            const [, m, d, y] = match as string[];
+            month = m; day = d; year = y;
+          }
+        }
+        
+        const date = new Date(
+          parseInt(year as string),
+          parseInt(month as string) - 1, // Month is 0-indexed
+          parseInt(day as string),
+          parseInt(hour as string),
+          parseInt(minute as string),
+          parseInt(second as string)
+        );
+        
+        if (!isNaN(date.getTime())) {
+          return date;
+        }
+      } catch (error) {
+        continue;
+      }
+    }
+  }
+  
+  // Try native Date parsing as fallback
+  try {
+    const date = new Date(trimmed);
+    if (!isNaN(date.getTime())) {
+      return date;
+    }
+  } catch (error) {
+    // Ignore parsing errors
+  }
+  
+  return null;
+};
+
+// Enhanced timestamp detection
+const isTimestampLikeEnhanced = (value: string): boolean => {
+  if (!value || typeof value !== 'string') return false;
+  
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  
+  // Check for common timestamp patterns
+  const timestampPatterns = [
+    /^\d{1,2}\/\d{1,2}\/\d{4}\s+\d{1,2}:\d{2}:\d{2}$/, // 2/1/2025 11:53:46
+    /^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}$/, // 2025-02-01 11:53:46
+    /^\d{1,2}\/\d{1,2}\/\d{4}$/, // 2/1/2025
+    /^\d{4}-\d{2}-\d{2}$/, // 2025-02-01
+    /^\d{1,2}-\d{1,2}-\d{4}$/, // 01-01-2025
+    /^\d{4}\/\d{2}\/\d{2}$/ // 2025/01/01
+  ];
+  
+  return timestampPatterns.some(pattern => pattern.test(trimmed));
+};
+
 export const parseCSVFile = (file: File): Promise<any[]> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -80,33 +238,70 @@ export const parseCSVFile = (file: File): Promise<any[]> => {
           return;
         }
         
-        const headers = lines[0].split('\t').map(h => h.trim()); // Use tab delimiter for better parsing
+        // Dynamically detect delimiter
+        const delimiter = detectDelimiter(text);
+        console.log(`Detected delimiter: "${delimiter}"`);
+        
+        const headers = lines[0].split(delimiter).map(h => h.trim());
         const data = [];
         
-        // Handle timestamp column
+        // Enhanced header processing with date column detection
         const processedHeaders = headers.map((header, index) => {
           if (index === 0 && (!header || header.trim() === '')) {
-            const firstDataValue = lines[1]?.split('\t')[0];
-            if (firstDataValue && isTimestampLike(firstDataValue)) {
+            const firstDataValue = lines[1]?.split(delimiter)[0];
+            if (firstDataValue && isTimestampLikeEnhanced(firstDataValue)) {
               return 'Timestamp';
             }
           }
+          
+          // Check if any column contains date-like data
+          const columnData = lines.slice(1).map(line => {
+            const parts = line.split(delimiter);
+            return parts[index] || '';
+          }).filter(val => val.trim());
+          
+                     // If more than 50% of values in this column look like dates, mark it as a date column
+           const dateLikeCount = columnData.filter(val => isTimestampLikeEnhanced(val)).length;
+          if (dateLikeCount > columnData.length * 0.5) {
+            return header || `Date_${index + 1}`;
+          }
+          
           return header || `Column_${index + 1}`;
         });
         
         for (let i = 1; i < lines.length; i++) {
           if (lines[i].trim()) {
-            const values = lines[i].split('\t').map(v => v.trim());
+            const values = lines[i].split(delimiter).map(v => v.trim());
             const row: any = {};
+            
+            console.log(`Processing row ${i}:`, values);
+            
             processedHeaders.forEach((header, index) => {
-              row[header] = values[index] || '';
+              const value = values[index] || '';
+              
+              // Parse dates for date columns
+              if (header.toLowerCase().includes('date') || 
+                  header.toLowerCase().includes('timestamp') ||
+                  isTimestampLikeEnhanced(value)) {
+                const parsedDate = parseDate(value);
+                row[header] = parsedDate ? parsedDate.toISOString() : value;
+              } else {
+                row[header] = value;
+              }
             });
-            data.push(row);
+            
+            // Only add row if it has at least one non-empty value
+            const hasData = Object.values(row).some(val => val && val.toString().trim() !== '');
+            if (hasData) {
+              data.push(row);
+            }
           }
         }
         
+        console.log('Parsed CSV data:', data.slice(0, 2)); // Log first 2 rows for debugging
         resolve(data);
       } catch (error) {
+        console.error('CSV parsing error:', error);
         reject(error);
       }
     };
@@ -155,6 +350,7 @@ const parseTimestamp = (timestampStr: string): Date => {
 };
 
 export const validateApplicantData = (data: any[]): { valid: Applicant[]; errors: string[]; duplicates: string[] } => {
+  console.log('Validating data:', data.length, 'rows');
   const valid: Applicant[] = [];
   const errors: string[] = [];
   const duplicates: string[] = [];
@@ -179,12 +375,14 @@ export const validateApplicantData = (data: any[]): { valid: Applicant[]; errors
       // Extract email and CPF for duplicate checking
       const email = getFieldValue(row, [
         'Email address',
-        'Email'
+        'Email',
+        'email'
       ]).toLowerCase();
       
       const cpf = getFieldValue(row, [
         'सीपीएफ / CPF',
-        'CPF'
+        'CPF',
+        'cpf'
       ]);
       
       // Check for duplicates
@@ -213,7 +411,9 @@ export const validateApplicantData = (data: any[]): { valid: Applicant[]; errors
         ]),
         
         name: getFieldValue(row, [
-          'नाम/  Name (in capital)'
+          'नाम/  Name (in capital)',
+          'Name',
+          'name'
         ]),
         
         age: getNumericValue(row, [
@@ -225,7 +425,9 @@ export const validateApplicantData = (data: any[]): { valid: Applicant[]; errors
         ]),
         
         category: getFieldValue(row, [
-          'वर्ग / Category'
+          'वर्ग / Category',
+          'Category',
+          'category'
         ]),
         
         address: getFieldValue(row, [
@@ -347,6 +549,8 @@ export const validateApplicantData = (data: any[]): { valid: Applicant[]; errors
       };
       
       // Only validate truly required fields to ensure 100% success rate
+      console.log(`Row ${index + 2}: email="${applicant.email}", name="${applicant.name}"`);
+      
       if (!applicant.email) {
         errors.push(`Row ${index + 2}: Missing email address`);
         return;
@@ -386,6 +590,7 @@ export const validateApplicantData = (data: any[]): { valid: Applicant[]; errors
     return dateB - dateA; // Descending order (newest first)
   });
   
+  console.log('Validation complete:', { valid: valid.length, errors: errors.length, duplicates: duplicates.length });
   return { valid, errors, duplicates };
 };
 
