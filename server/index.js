@@ -356,198 +356,116 @@ const initializeInMemoryUsers = async () => {
 };
 
 // Note: authenticateToken and requireRole are imported from routes/auth.js
-
+//const fs = require('fs/promises');
+//const path = require('path');
+const { PDFDocument, StandardFonts, rgb } = require('pdf-lib');
+const fontkit= require('@pdf-lib/fontkit');
+function cleanText(text) {
+  return text.replace(/[\u0900-\u097F\/]+/g, '');
+}
+const coords = {
+  name: [77, 720],
+  age: [240, 718],
+  reg: [460, 720],
+  gender: [90, 698],
+  category: [290, 700],
+  address: [90, 678],
+  mobile: [128, 658],
+  email: [330, 658],
+  father: [235, 637],
+  father_occupation: [290, 618],
+  'father-phone': [128, 602],
+  course: [295, 508],
+  semester: [200, 492],
+  cgpa: [245, 478],
+  percentage: [500, 478],
+  college: [220, 458],
+  date: [460, 440], // optional
+};
 // Authentication routes are handled by authRouter
 // Function to fill PDF form with applicant data
 const fillPDFForm = async (applicantData, registrationNumber) => {
-  try {
-    const templatePath = path.join(__dirname, 'templates', 'template.pdf');
-    
-    // Check if template exists
-    if (!fs.existsSync(templatePath)) {
-      console.warn('PDF template not found at:', templatePath);
-      return null;
-    }
-    
-    // Read the template PDF
-    const existingPdfBytes = fs.readFileSync(templatePath);
-    
-    // Load the PDF document
-    const pdfDoc = await PDFDocument.load(existingPdfBytes);
-    
-    // Get the form from the PDF
-    const form = pdfDoc.getForm();
-    
-    // Get all field names (for debugging - you can remove this later)
-    const fieldNames = form.getFields().map(field => field.getName());
-    console.log('Available PDF form fields:', fieldNames);
-    
-    // Helper function to safely set field value
-    const setFieldValue = (fieldName, value) => {
-      try {
-        const field = form.getField(fieldName);
-        if (field) {
-          // Convert value to string and handle null/undefined
-          const stringValue = value ? String(value).trim() : '';
-          
-          // Check field type and set accordingly
-          if (field.constructor.name === 'PDFTextField') {
-            field.setText(stringValue);
-          } else if (field.constructor.name === 'PDFCheckBox') {
-            // For checkboxes, check if value indicates true
-            const shouldCheck = stringValue.toLowerCase().includes('yes') || 
-                               stringValue.toLowerCase().includes('हां') ||
-                               stringValue === '1' ||
-                               stringValue.toLowerCase() === 'true';
-            if (shouldCheck) {
-              field.check();
-            }
-          } else if (field.constructor.name === 'PDFDropdown') {
-            // For dropdowns, try to select the option
-            const options = field.getOptions();
-            const matchingOption = options.find(opt => 
-              opt.toLowerCase().includes(stringValue.toLowerCase()) ||
-              stringValue.toLowerCase().includes(opt.toLowerCase())
-            );
-            if (matchingOption) {
-              field.select(matchingOption);
-            }
-          }
-          console.log(`Set field "${fieldName}" to "${stringValue}"`);
-        }
-      } catch (error) {
-        console.warn(`Could not set field "${fieldName}":`, error.message);
-      }
-    };
-    
-    // Fill the form fields with applicant data
-    // You may need to adjust these field names based on your actual PDF form
-    
-    // Basic Information
-    setFieldValue('name', applicantData.name);
-    setFieldValue('Name', applicantData.name);
-    setFieldValue('applicant_name', applicantData.name);
-    setFieldValue('student_name', applicantData.name);
-    
-    setFieldValue('email', applicantData.email);
-    setFieldValue('Email', applicantData.email);
-    setFieldValue('email_address', applicantData.email);
-    
-    setFieldValue('mobile', applicantData.mobileNo);
-    setFieldValue('Mobile', applicantData.mobileNo);
-    setFieldValue('mobile_no', applicantData.mobileNo);
-    setFieldValue('phone', applicantData.mobileNo);
-    
-    setFieldValue('age', applicantData.age);
-    setFieldValue('Age', applicantData.age);
-    
-    setFieldValue('gender', applicantData.gender);
-    setFieldValue('Gender', applicantData.gender);
-    
-    setFieldValue('category', applicantData.category);
-    setFieldValue('Category', applicantData.category);
-    
-    setFieldValue('address', applicantData.address);
-    setFieldValue('Address', applicantData.address);
-    
-    // Family Information
-    setFieldValue('father_mother_name', applicantData.fatherMotherName);
-    setFieldValue('father_name', applicantData.fatherMotherName);
-    setFieldValue('parent_name', applicantData.fatherMotherName);
-    
-    setFieldValue('father_mother_occupation', applicantData.fatherMotherOccupation);
-    setFieldValue('father_occupation', applicantData.fatherMotherOccupation);
-    setFieldValue('parent_occupation', applicantData.fatherMotherOccupation);
-    
-    // Academic Information
-    setFieldValue('institute', applicantData.presentInstitute);
-    setFieldValue('Institute', applicantData.presentInstitute);
-    setFieldValue('college', applicantData.presentInstitute);
-    setFieldValue('present_institute', applicantData.presentInstitute);
-    
-    setFieldValue('semester', applicantData.presentSemester);
-    setFieldValue('Semester', applicantData.presentSemester);
-    setFieldValue('present_semester', applicantData.presentSemester);
-    
-    setFieldValue('sgpa', applicantData.lastSemesterSGPA);
-    setFieldValue('SGPA', applicantData.lastSemesterSGPA);
-    setFieldValue('last_semester_sgpa', applicantData.lastSemesterSGPA);
-    
-    setFieldValue('percentage_12th', applicantData.percentageIn10Plus2);
-    setFieldValue('12th_percentage', applicantData.percentageIn10Plus2);
-    setFieldValue('percentage_10_2', applicantData.percentageIn10Plus2);
-    
-    setFieldValue('training_area', applicantData.areasOfTraining);
-    setFieldValue('areas_of_training', applicantData.areasOfTraining);
-    setFieldValue('training_areas', applicantData.areasOfTraining);
-    
-    // ONGC Specific Information
-    setFieldValue('cpf', applicantData.cpf);
-    setFieldValue('CPF', applicantData.cpf);
-    setFieldValue('cpf_number', applicantData.cpf);
-    
-    setFieldValue('designation', applicantData.designation);
-    setFieldValue('Designation', applicantData.designation);
-    
-    setFieldValue('section', applicantData.section);
-    setFieldValue('Section', applicantData.section);
-    
-    setFieldValue('location', applicantData.location);
-    setFieldValue('Location', applicantData.location);
-    
-    // Mentor Information
-    setFieldValue('mentor_name', applicantData.mentorName);
-    setFieldValue('mentor_designation', applicantData.mentorDesignation);
-    setFieldValue('mentor_section', applicantData.mentorSection);
-    setFieldValue('mentor_location', applicantData.mentorLocation);
-    setFieldValue('mentor_email', applicantData.mentorEmail);
-    setFieldValue('mentor_cpf', applicantData.mentorCPF);
-    setFieldValue('mentor_mobile', applicantData.mentorMobileNo);
-    
-    // Registration and System Information
-    setFieldValue('registration_number', registrationNumber);
-    setFieldValue('reg_number', registrationNumber);
-    setFieldValue('registration_no', registrationNumber);
-    
-    setFieldValue('term', applicantData.term);
-    setFieldValue('Term', applicantData.term);
-    
-    setFieldValue('quota_category', applicantData.quotaCategory);
-    setFieldValue('quota', applicantData.quotaCategory);
-    
-    // Current date
-    const currentDate = new Date().toLocaleDateString('en-IN');
-    setFieldValue('date', currentDate);
-    setFieldValue('Date', currentDate);
-    setFieldValue('application_date', currentDate);
-    
-    // Declarations (if they exist as checkboxes)
-    setFieldValue('declaration_01', applicantData.declaration01);
-    setFieldValue('declaration_02', applicantData.declaration02);
-    setFieldValue('declaration_03', applicantData.declaration03);
-    
-    setFieldValue('instruction_acknowledged', applicantData.instructionAcknowledged);
-    setFieldValue('training_acknowledgement', applicantData.trainingAcknowledgement);
-    
-    // Flatten the form to prevent further editing
-    form.flatten();
-    
-    // Serialize the PDF
-    const pdfBytes = await pdfDoc.save();
-    
-    return pdfBytes;
-    
-  } catch (error) {
-    console.error('Error filling PDF form:', error);
-    return null;
-  }
-};
+    try {
+        console.log('📄 Filling PDF form with applicant data:', applicantData);
+        const templatePath = path.join(__dirname, 'templates', 'template.pdf');
+        const fontPath = path.join(__dirname, 'templates', 'NotoSansDevanagari-Regular.ttf');
 
+        // Check if template exists
+        if (!fs.existsSync(templatePath)) {
+            console.warn('PDF template not found at:', templatePath);
+            return null;
+        }
+
+        // Read the template PDF
+        const templateBytes = fs.readFileSync(templatePath);
+        const pdfDoc = await PDFDocument.load(templateBytes);
+        const fontBytes = fs.readFileSync(fontPath);
+        pdfDoc.registerFontkit(fontkit);
+        const customFont = await pdfDoc.embedFont(fontBytes);
+        const page = pdfDoc.getPages()[0];
+
+        const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+        const fontSize = 12;
+
+
+        const setFieldValue = (fieldName, value) => {
+            if (value === undefined || value === null) {
+                console.warn(`Field "${fieldName}" is undefined or null, skipping.`);
+                return;
+            }
+            try{
+              value=cleanText(String(value));
+            }
+            catch(e){
+              console.error(`Error cleaning text for field "${fieldName}":`, e);
+            }
+            const coord = coords[fieldName];
+            if (!coord) {
+                console.warn(`No coordinates defined for field "${fieldName}"`);
+                return;
+            }
+
+            const [x, y] = coord;
+            const text = value ? String(value).trim() : '';
+
+            page.drawText(text, {
+                x,
+                y,
+                size: fontSize,
+                customFont,
+                color: rgb(0, 0, 0),
+            });
+        };
+
+        setFieldValue('name', applicantData.name);
+        setFieldValue('email', applicantData.email);
+        setFieldValue('mobile', applicantData.mobile);
+        setFieldValue('age', applicantData.age);
+        setFieldValue('gender', applicantData.gender);
+        setFieldValue('category', applicantData.category);
+        setFieldValue('address', applicantData.address);
+        setFieldValue('father', applicantData.father);
+        setFieldValue('father_occupation', applicantData.father_occupation);
+        setFieldValue('college', applicantData.college);
+        setFieldValue('course', applicantData.course);
+        setFieldValue('semester', applicantData.semester);
+        setFieldValue('cgpa', applicantData.cgpa);
+        setFieldValue('percentage', applicantData.percentage);
+        setFieldValue('reg', applicantData.reg);
+
+
+        return await pdfDoc.save();
+        
+    } catch (error) {
+        console.error('Error filling PDF form:', error);
+        return null;
+    }
+};
 // Email sending endpoint
 app.post('/api/send-email', authenticateToken, async (req, res) => {
   try {
-    const { to, subject, html, text, attachTemplate } = req.body;
-    
+    const { to, subject, html, text, attachTemplate, applicantData } = req.body;
+    console.log(applicantData);
     console.log('📧 Email sending request received:');
     console.log(`   📮 To: ${to}`);
     console.log(`   📝 Subject: ${subject}`);
@@ -597,40 +515,63 @@ app.post('/api/send-email', authenticateToken, async (req, res) => {
       text: text || html?.replace(/<[^>]*>/g, ''), // Strip HTML tags for text version
       attachments: []
     };
-    
+    console.log('LMAO');
     // Add PDF template attachment if requested
     if (attachTemplate) {
+          console.log('LMAO2');
       // Check if we have applicant data to fill the form
       let pdfBuffer = null;
       
       // Try to extract applicant data from email content for form filling
-      if (html && html.includes('Registration number is:')) {
-        try {
+      //if (html && html.includes('Registration number is:')) {
+            console.log('LMAO3');
+
+            try {
           // Extract registration number from email content
           const regMatch = html.match(/SAIL-\d{4}-\d{4}/);
           const registrationNumber = regMatch ? regMatch[0] : '';
-          
+          console.log('ApplicantData', applicantData);
           // Create mock applicant data from email recipient
           // In a real implementation, you'd pass the full applicant data
-          const applicantData = {
-            name: to.split('@')[0], // Basic fallback
-            email: to,
-            registrationNumber: registrationNumber,
-            // Add other fields as available
-          };
-          
+          const data = {
+            name: applicantData.name,
+            age: applicantData.age,
+            gender: applicantData.gender,
+            category: applicantData.category,
+            reg: registrationNumber,
+            address: applicantData.address,
+            mobile: applicantData.mobileNo,
+            email: applicantData.email,
+            father: applicantData.fatherMotherName,
+            father_occupation: applicantData.fatherMotherOccupation,
+            course: applicantData.areasOfTraining,
+            semester: applicantData.presentSemester,
+            cgpa: applicantData.lastSemesterSGPA,
+            percentage: applicantData.percentageIn10Plus2,
+            college: applicantData.presentInstitute
+
+
+        }
+                console.log('LMAO4');
+
           // Fill the PDF form
-          pdfBuffer = await fillPDFForm(applicantData, registrationNumber);
+              
+
+              pdfBuffer = await fillPDFForm(data, registrationNumber);
+              console.log('LMAO5');
         } catch (error) {
           console.error('Error creating filled PDF:', error);
         }
-      }
+      //}
       
       if (pdfBuffer) {
+            console.log('LMAO6');
+
         // Use filled PDF
         mailOptions.attachments.push({
-          filename: 'ONGC_Internship_Application_Form_Filled.pdf',
+          filename: 'ONGC_Internship_Application_Form2_Filled.pdf',
           content: pdfBuffer,
+
           contentType: 'application/pdf'
         });
       } else {
